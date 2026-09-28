@@ -1,0 +1,30 @@
+name: Signaler un bug
+description: Le jeu plante, affiche quelque chose de bizarre ou ne respecte pas les règles
+labels: [bug]
+body:
+  - type: textarea
+    id: quoi
+    attributes:
+      label: Que s'est-il passé ?
+      description: Ce que tu as fait, ce que tu attendais, ce qui est arrivé. Une capture d'écran aide beaucoup.
+    validations:
+      required: true
+  - type: dropdown
+    id: systeme
+    attributes:
+      label: Système
+      options: [Windows, Mac, Autre]
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode de jeu
+      options: [Seul contre l'IA, Deux joueurs même écran, En ligne, Menus / autre]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version du jeu
+      placeholder: ex. v2.0.1 (nom de la release téléchargée)

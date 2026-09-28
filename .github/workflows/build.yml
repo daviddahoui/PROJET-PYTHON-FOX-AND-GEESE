@@ -1,0 +1,80 @@
+# Compile le jeu pour Windows (.exe) et Mac (.app) sur de vraies machines GitHub.
+# - à chaque push sur main : exécutables téléchargeables dans l'onglet « Actions »
+# - à chaque tag vX.Y.Z   : publication d'une « Release » avec les fichiers à télécharger
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dépendances
+        run: pip install -r requirements-dev.txt
+      - name: Tests
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: python -m pytest -q -k "not online"
+      - name: Compilation
+        run: pyinstaller --noconfirm FoxAndGeese.spec
+      # On lance le vrai exécutable compilé : il ouvre une partie, fait jouer l'IA,
+      # contacte le relais en ligne, puis se ferme et écrit un rapport.
+      - name: Auto-test de l'exécutable Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:FOXGEESE_SELFTEST = "$PWD\selftest.json"
+          $p = Start-Process dist\FoxAndGeese\FoxAndGeese.exe -PassThru
+          if (-not $p.WaitForExit(120000)) { Stop-Process $p -Force; throw "L'exécutable ne s'est pas fermé à temps" }
+          Get-Content selftest.json
+          if (-not (Get-Content selftest.json | ConvertFrom-Json).ok) { throw "Auto-test échoué" }
+      - name: Auto-test de l'app Mac
+        if: runner.os == 'macOS'
+        timeout-minutes: 3
+        run: |
+          FOXGEESE_SELFTEST="$PWD/selftest.json" "dist/Fox and Geese.app/Contents/MacOS/FoxAndGeese" || (cat selftest.json; exit 1)
+          cat selftest.json
+      - name: Paquet Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Remove-Item selftest.json -ErrorAction SilentlyContinue
+          Compress-Archive -Path dist\FoxAndGeese -DestinationPath FoxAndGeese-Windows.zip
+      # Analyse antivirus de l'exécutable avant publication (pour information)
+      - name: Analyse Windows Defender
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Update-MpSignature -ErrorAction SilentlyContinue
+          & "$env:ProgramFiles\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File "$PWD\dist\FoxAndGeese" -DisableRemediation
+          Write-Host "Résultat : code $LASTEXITCODE (0 = rien détecté, 2 = menace)"
+      - name: Paquet Mac
+        if: runner.os == 'macOS'
+        run: cd dist && ditto -c -k --keepParent "Fox and Geese.app" ../FoxAndGeese-Mac.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FoxAndGeese-${{ runner.os }}
+          path: FoxAndGeese-*
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: FoxAndGeese-*
