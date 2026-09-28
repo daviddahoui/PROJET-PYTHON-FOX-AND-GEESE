@@ -77,3 +77,26 @@ g2.paused = False
 g3 = GameScene(app, "solo", "1-17", human_side=rules.GOOSE)
 g3.toggle_pause()
 app.shot("8_pause.png", g3, t=0.2, steps=2)
+
+
+class FakeSession:
+    role, code, peer_name = "host", "K7QM4", "Alex"
+    def send(self, msg): pass
+    def poll(self): return []
+    def close(self): pass
+
+
+g4 = GameScene(app, "online", "1-15", human_side=rules.FOX, session=FakeSession())
+for mv in [(17, 10), (29, 22), (10, 16)]:
+    if mv in rules.legal_moves(g4.match.state):
+        g4.play(mv)
+chat = g4.chat
+chat.add("peer", "Salut ! Prêt à te faire encercler ? 😎")
+chat.add("me", "Mon renard a faim 🔥🔥")
+chat.add("peer", emoji="rire")
+chat.add("me", "Attention à ton oie à gauche…")
+chat.add("peer", "Nooon 😭 bien joué 👏")
+chat.float("feu")
+g4.chat.input.value = "GG "
+g4.chat.input.focused = True
+app.shot("8_online_chat.png", g4, t=0.6, steps=12)

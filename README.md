@@ -48,12 +48,14 @@ Un bug, une idée ? [Ouvre une *issue*](../../issues/new/choose).
 - **Deux joueurs sur le même écran.**
 - **En ligne entre amis** : un code à 5 caractères suffit, d'une maison à l'autre, sans
   rien configurer. Revanche avec camps inversés.
+- **Chat pendant la partie en ligne** : messages et émojis (😂 👍 😮 😡 🔥 👏 😭 😎) qui
+  s'envolent au-dessus du plateau. Entrée pour écrire.
 - **5 configurations** : 1 renard contre 13, 15 ou 17 oies ; 2 renards contre 20 ou 27.
 - Annulation de coup, sauvegarde automatique, plein écran (F11), musique et bruitages.
 
-| Choisir sa partie | Jouer | Gagner |
+| Choisir sa partie | Jouer en ligne et discuter | Gagner |
 |---|---|---|
-| ![Configuration](docs/screenshots/2_setup_solo.png) | ![Partie](docs/screenshots/6_game_selected.png) | ![Victoire](docs/screenshots/7_victory.png) |
+| ![Configuration](docs/screenshots/2_setup_solo.png) | ![Partie en ligne avec chat](docs/screenshots/8_online_chat.png) | ![Victoire](docs/screenshots/7_victory.png) |
 
 ## Règles
 
@@ -90,18 +92,19 @@ Tests : `pip install -r requirements-dev.txt && python -m pytest`
 | [`foxgeese/rules.py`](foxgeese/rules.py) | Règles pures : plateau, coups, captures, victoire. Aucun affichage. |
 | [`foxgeese/ai.py`](foxgeese/ai.py) | IA minimax avec élagage alpha-bêta et approfondissement itératif. |
 | [`foxgeese/net.py`](foxgeese/net.py) | Mode en ligne via un relais MQTT public. |
+| [`foxgeese/chat.py`](foxgeese/chat.py) | Chat en ligne : messages, émojis, filtrage des caractères. |
 | [`foxgeese/game.py`](foxgeese/game.py) | Écran de partie : plateau animé, IA en arrière-plan, synchronisation en ligne. |
 | [`foxgeese/scenes.py`](foxgeese/scenes.py) | Menus, configuration, salon en ligne, règles. |
 | [`foxgeese/ui.py`](foxgeese/ui.py) | Thème, mise à l'échelle (Retina / 4K), widgets. |
 | [`foxgeese/storage.py`](foxgeese/storage.py) | Sauvegarde et réglages dans le dossier utilisateur. |
-| [`tests/`](tests) | 20 tests automatiques. |
+| [`tests/`](tests) | 25 tests automatiques. |
 | [`archive-2023/`](archive-2023) | Version originale de 2023 (Tkinter) et sa documentation. |
 
 **Mode en ligne.** Pour éviter d'avoir à ouvrir des ports sur sa box, les deux jeux passent
 par un relais MQTT public et gratuit (`broker.emqx.io`, avec `broker.hivemq.com` et
 `test.mosquitto.org` en secours). Chaque partie a son « salon », identifié par le code.
 Les deux jeux appliquent les mêmes règles et vérifient chaque coup reçu. Limites : le relais
-est public, donc les messages (coups et pseudos, rien d'autre) ne sont pas privés, et le
+est public, donc les messages (coups, pseudos et messages du chat) ne sont pas privés, et le
 mode en ligne dépend de la disponibilité de ces services gratuits.
 
 **Versions Windows et Mac.** Compilées par GitHub Actions

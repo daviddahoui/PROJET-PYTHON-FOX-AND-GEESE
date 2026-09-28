@@ -11,6 +11,7 @@ import pygame
 
 from . import ai, rules, storage
 from .rules import FOX, GOOSE, PASS, Match
+from .chat import ChatPanel
 from .scenes import MenuScene, Scene
 from .ui import (CREAM, FOX_C, G, GOOSE_C, GREEN, INK, INK_SOFT, LINE, PAPER, RED, WHITE, YELLOW,
                  Button, Particles, alpha_circle, box, ease_out, ease_out_back, image, paragraph, stripe, text)
@@ -129,7 +130,8 @@ class Anim:
 
 
 class GameScene(Scene):
-    def __init__(self, app, mode, setup, human_side=FOX, level="Moyen", moves=None, seconds=0.0, session=None):
+    def __init__(self, app, mode, setup, human_side=FOX, level="Moyen", moves=None, seconds=0.0, session=None,
+                 chat_log=None):
         super().__init__(app)
         self.mode, self.setup, self.level = mode, setup, level
         self.human_side = human_side or FOX
@@ -148,8 +150,10 @@ class GameScene(Scene):
         self.ai_started = 0.0
         self.end_shown = 0.0
         self.end_sound = False
-        self.notice = None                       # message temporaire (en ligne)
         self.peer_name = session.peer_name if session else None
+        # En ligne, les fenêtres (pause, fin) se centrent sur le plateau pour laisser le chat visible
+        self.cx = 400 if mode == "online" else 600
+        self.chat = ChatPanel(self, 800, 286, 360, 400, chat_log) if mode == "online" else None
         self.rematch_me = self.rematch_peer = False
         self.net_error = None
         self.last_move = self.match.moves[-1] if self.match.moves else None
@@ -183,12 +187,13 @@ class GameScene(Scene):
         self.btn_undo = Button("Annuler le coup", px, 600, 174, 58, self.undo, style="secondary", size=17)
         self.btn_menu = Button("Pause", px + 186, 600, 174, 58, self.toggle_pause, style="secondary", size=17)
         if self.mode == "online":
-            self.btn_menu = Button("Menu", px, 600, 360, 58, self.toggle_pause, style="secondary", size=17)
+            self.btn_menu = Button("Menu", px, 702, 170, 54, self.toggle_pause, style="secondary", size=17)
+            self.btn_pass = Button("Arrêter la rafle", px + 182, 702, 178, 54, self.pass_chain, style="fox", size=16)
         self.panel_buttons = [self.btn_pass, self.btn_menu] + ([self.btn_undo] if self.mode != "online" else [])
         self.overlay_buttons: list = []
 
     def _pause_buttons(self):
-        x, w = 440, 320
+        x, w = self.cx - 160, 320
         if self.mode == "online":
             items = [("Reprendre", self.toggle_pause, "primary"),
                      ("Quitter la partie", self.quit_to_menu, "danger")]
@@ -203,11 +208,11 @@ class GameScene(Scene):
     def _end_buttons(self):
         if self.mode == "online":
             label = "Revanche !" if not self.rematch_me else "En attente…"
-            first = Button(label, 430, 560, 200, 62, self.ask_rematch, style="primary", size=21,
+            first = Button(label, self.cx - 170, 560, 200, 62, self.ask_rematch, style="primary", size=21,
                            enabled=not self.rematch_me and not self.net_error)
         else:
-            first = Button("Rejouer", 430, 560, 200, 62, self.restart, style="primary", size=21)
-        return [first, Button("Menu", 650, 560, 120, 62, self.quit_to_menu, style="secondary", size=21)]
+            first = Button("Rejouer", self.cx - 170, 560, 200, 62, self.restart, style="primary", size=21)
+        return [first, Button("Menu", self.cx + 50, 560, 120, 62, self.quit_to_menu, style="secondary", size=21)]
 
     # --- Actions -------------------------------------------------------------------------
 
@@ -278,7 +283,10 @@ class GameScene(Scene):
             self._restart_online(new_host_side)
 
     def _restart_online(self, my_side):
-        self.app.go(GameScene(self.app, "online", self.setup, human_side=my_side, session=self.session))
+        scene = GameScene(self.app, "online", self.setup, human_side=my_side, session=self.session,
+                          chat_log=self.chat.log)
+        scene.chat.system("Revanche ! Les camps sont inversés.")
+        self.app.go(scene)
 
     # --- Jouer un coup ---------------------------------------------------------------------
 
@@ -319,6 +327,8 @@ class GameScene(Scene):
     # --- Événements ------------------------------------------------------------------------
 
     def handle(self, e, mouse):
+        if self.chat and not self.net_error and self.chat.handle(e, mouse):
+            return
         if e.type == pygame.KEYDOWN:
             if e.key in (pygame.K_ESCAPE, pygame.K_p):
                 self.toggle_pause()
@@ -378,6 +388,8 @@ class GameScene(Scene):
         for b in self.panel_buttons + self.overlay_buttons:
             b.update(dt)
         self.particles.update(dt)
+        if self.chat:
+            self.chat.update(dt)
         s = self.match.state
         self.btn_pass.enabled = s.chain is not None and self.is_human_turn() and not self.anim
         self.btn_undo.enabled = bool(self.match.moves) and not self.anim and self.ai_thread is None
@@ -437,6 +449,8 @@ class GameScene(Scene):
     def _net_update(self):
         for e in self.session.poll():
             t = e.get("t")
+            if self.chat.receive(e):
+                continue
             if t == "move":
                 n, m = e.get("n"), tuple(e.get("m", ()))
                 if n != len(self.match.moves) or m not in rules.legal_moves(self.match.state) \
@@ -446,7 +460,7 @@ class GameScene(Scene):
                 self.play(m, remote=True)
             elif t == "rematch":
                 self.rematch_peer = True
-                self.notice = (f"{self.peer_name or 'Ton ami'} veut une revanche !", 4.0)
+                self.chat.system(f"{self.peer_name or 'Ton ami'} veut une revanche !")
                 self._maybe_rematch()
             elif t == "start" and self.session.role == "guest":
                 other = GOOSE if e["host_side"] == FOX else FOX
@@ -456,9 +470,9 @@ class GameScene(Scene):
             elif t == "lost":
                 self.net_error = "Connexion perdue avec ton ami."
             elif t == "status":
-                self.notice = (e["text"], 3.0)
+                self.chat.system(e["text"])
         if self.net_error and not self.overlay_buttons:
-            self.overlay_buttons = [Button("Retour au menu", 450, 470, 300, 62, self.quit_to_menu, size=21)]
+            self.overlay_buttons = [Button("Retour au menu", self.cx - 150, 470, 300, 62, self.quit_to_menu, size=21)]
         elif self.net_error and self.match.state.winner:
             self.overlay_buttons = self._end_buttons()
 
@@ -472,12 +486,19 @@ class GameScene(Scene):
         self._draw_pieces(surf)
         self._draw_panel(surf)
         self.particles.draw(surf)
+        chat_on_top = self.chat is not None and not self.net_error
+        if self.chat:
+            self.chat.draw_floaters(surf)
+            if not chat_on_top:
+                self.chat.draw(surf)
         if self.match.state.winner and not self.anim and not self.queue:
             self._draw_end(surf)
         elif self.paused:
             self._draw_pause(surf)
         if self.net_error and not self.match.state.winner:
             self._draw_net_error(surf)
+        if chat_on_top:
+            self.chat.draw(surf)          # reste utilisable pendant la pause et après la partie
 
     def _draw_hints(self, surf):
         s = self.shown
@@ -535,6 +556,8 @@ class GameScene(Scene):
             draw_token(surf, a.piece, x, y, scale=1 + hop / 400, lift=hop)
 
     def _draw_panel(self, surf):
+        if self.mode == "online":
+            return self._draw_panel_online(surf)
         s = self.shown
         px, pw = 800, 360
         # Carte « à qui le tour »
@@ -608,12 +631,48 @@ class GameScene(Scene):
         text(surf, "Échap : pause · Ctrl/Cmd+Z : annuler" if self.mode != "online" else "Échap : menu",
              px + pw / 2, 690, 14, "regular", INK_SOFT, anchor="center")
 
-        if self.notice:
-            msg, left_t = self.notice
-            left_t -= 1 / 60
-            self.notice = (msg, left_t) if left_t > 0 else None
-            box(surf, 800, 720, 360, 44, YELLOW, radius=14, shadow=4)
-            text(surf, msg, 980, 742, 15, "semi", INK, anchor="center")
+
+    def _draw_panel_online(self, surf):
+        """Panneau compact : tour, statistiques, puis le chat (dessiné à part)."""
+        s = self.shown
+        px, pw = 800, 360
+        box(surf, px, 40, pw, 100, CREAM, radius=22)
+        stripe(surf, px, 40, pw, FOX_C if s.turn == FOX else GOOSE_C)
+        image(surf, "fox.png" if s.turn == FOX else "goose.png", px + 50, 94, 64, angle=math.sin(self.t * 3) * 4)
+        if s.winner:
+            head, sub = "Partie terminée", f"contre {self.peer_name or 'ton ami'}"
+        elif s.turn == self.human_side:
+            head, sub = "À toi de jouer !", f"Tu joues : {SIDE_NAME[s.turn]}"
+        else:
+            head, sub = f"Tour de {self.peer_name or 'ton ami'}", SIDE_NAME[s.turn]
+        if s.chain is not None and not s.winner:
+            sub = "Rafle ! Recapture ou arrête-toi"
+        text(surf, head, px + 96, 82, 22, "title", INK, anchor="midleft")
+        text(surf, sub, px + 96, 112, 14, "semi", INK_SOFT, anchor="midleft")
+
+        box(surf, px, 156, pw, 114, CREAM, radius=22)
+        start_geese = rules.SETUPS[self.setup].count(GOOSE)
+        left, need = s.geese_left, rules.GEESE_PER_FOX * s.fox_count
+        text(surf, "Oies sur le plateau", px + 22, 170, 14, "bold", INK_SOFT)
+        text(surf, f"{left} / {start_geese}", px + pw - 22, 170, 14, "bold", INK, anchor="topright")
+        bar = G.r(px + 22, 196, pw - 44, 16)
+        pygame.draw.rect(surf, PAPER, bar, border_radius=G.p(8))
+        fill = bar.copy()
+        fill.width = int(bar.width * left / start_geese)
+        pygame.draw.rect(surf, GOOSE_C, fill, border_radius=G.p(8))
+        mark = bar.x + int(bar.width * (need - 1) / start_geese)
+        pygame.draw.line(surf, RED, (mark, bar.y - G.p(4)), (mark, bar.bottom + G.p(4)), max(1, G.p(3)))
+        pygame.draw.rect(surf, INK, bar, max(1, G.p(2)), border_radius=G.p(8))
+        m, sec = divmod(int(self.seconds), 60)
+        text(surf, f"Croquées  {s.captured}", px + 22, 228, 15, "bold", INK)
+        text(surf, f"{m:02d}:{sec:02d}", px + pw / 2 + 10, 228, 15, "bold", INK, anchor="midtop")
+        text(surf, f"Coups  {len(self.match.moves)}", px + pw - 22, 228, 15, "bold", INK, anchor="topright")
+
+        self.btn_menu.draw(surf)
+        if self.btn_pass.enabled:
+            self.btn_pass.draw(surf)
+        else:
+            text(surf, f"Code {self.session.code}", px + 271, 729, 14, "semi", INK_SOFT, anchor="center")
 
     def _veil(self, surf, alpha=150):
         veil = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
@@ -624,8 +683,8 @@ class GameScene(Scene):
         self._veil(surf)
         n = len(self.overlay_buttons)
         top = self.overlay_buttons[0].y - 110
-        box(surf, 400, top, 400, n * 76 + 140, CREAM, radius=26, shadow=10)
-        text(surf, "Pause", 600, top + 55, 44, "title", INK, anchor="center")
+        box(surf, self.cx - 200, top, 400, n * 76 + 140, CREAM, radius=26, shadow=10)
+        text(surf, "Pause" if self.mode != "online" else "Menu", self.cx, top + 55, 44, "title", INK, anchor="center")
         for b in self.overlay_buttons:
             b.draw(surf)
 
@@ -634,7 +693,8 @@ class GameScene(Scene):
         self._veil(surf, int(140 * min(1.0, self.end_shown / 0.3)))
         s = self.match.state
         y = 210 + (1 - k) * 60
-        box(surf, 340, y, 520, 400, CREAM, radius=28, shadow=10)
+        cx = self.cx
+        box(surf, cx - 260, y, 520, 400, CREAM, radius=28, shadow=10)
         if s.winner == "draw":
             title, col, icon = "Match nul", INK, "trophy.png"
         elif self.mode == "local":
@@ -644,27 +704,27 @@ class GameScene(Scene):
             title, col, icon = "Victoire !", GREEN, "trophy.png"
         else:
             title, col, icon = "Défaite…", RED, "fox.png" if s.winner == FOX else "goose.png"
-        image(surf, icon, 600, y + 20, 130 * k, angle=math.sin(self.t * 2) * 5)
-        text(surf, title, 600, y + 118, 50, "title", col, anchor="center")
-        paragraph(surf, rules.REASONS.get(s.reason, ""), 600, y + 160, 440, size=17, align="center")
+        image(surf, icon, cx, y + 20, 130 * k, angle=math.sin(self.t * 2) * 5)
+        text(surf, title, cx, y + 118, 50, "title", col, anchor="center")
+        paragraph(surf, rules.REASONS.get(s.reason, ""), cx, y + 160, 440, size=17, align="center")
         m, sec = divmod(int(self.seconds), 60)
         stats = f"{len(self.match.moves)} coups  ·  {s.captured} oie{'s' if s.captured > 1 else ''} croquée" \
                 f"{'s' if s.captured > 1 else ''}  ·  {m:02d}:{sec:02d}"
-        text(surf, stats, 600, y + 244, 17, "bold", INK_SOFT, anchor="center")
+        text(surf, stats, cx, y + 244, 17, "bold", INK_SOFT, anchor="center")
         if self.mode == "online" and self.rematch_peer and not self.rematch_me:
-            text(surf, f"{self.peer_name or 'Ton ami'} veut une revanche !", 600, y + 268, 17, "bold",
+            text(surf, f"{self.peer_name or 'Ton ami'} veut une revanche !", cx, y + 268, 17, "bold",
                  FOX_C, anchor="center")
         if self.net_error:
-            text(surf, self.net_error, 600, y + 268, 16, "semi", RED, anchor="center")
+            text(surf, self.net_error, cx, y + 268, 16, "semi", RED, anchor="center")
         for b in self.overlay_buttons:
             b.y = y + 305
             b.draw(surf)
 
     def _draw_net_error(self, surf):
         self._veil(surf)
-        box(surf, 350, 280, 500, 280, CREAM, radius=26, shadow=10)
-        text(surf, "Partie interrompue", 600, 340, 38, "title", RED, anchor="center")
-        paragraph(surf, self.net_error, 600, 380, 420, size=18, align="center")
+        box(surf, self.cx - 250, 280, 500, 280, CREAM, radius=26, shadow=10)
+        text(surf, "Partie interrompue", self.cx, 340, 38, "title", RED, anchor="center")
+        paragraph(surf, self.net_error, self.cx, 380, 420, size=18, align="center")
         for b in self.overlay_buttons:
             b.draw(surf)
 

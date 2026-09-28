@@ -150,6 +150,17 @@ def test_online_full_game_two_players(app):
                 break
         assert other.match.state.cells == mover.match.state.cells, "plateaux désynchronisés"
     assert len(h.match.moves) >= 10
+    # chat : un message et un émoji vont de l'invité à l'hôte
+    g.chat.input.value = "Bien joué 👏"
+    g.chat.send_text()
+    g.chat.last_sent = 0
+    g.chat.send_emoji("feu")
+    for _ in range(600):
+        both_frames()
+        if len([m for m in h.chat.log if m["who"] == "peer"]) >= 2:
+            break
+    received = [m for m in h.chat.log if m["who"] == "peer"]
+    assert received[0]["text"] == "Bien joué 👏" and received[1]["emoji"] == "feu"
     # revanche : les deux la demandent, les camps sont échangés
     h.ask_rematch()
     g.ask_rematch()
@@ -159,6 +170,7 @@ def test_online_full_game_two_players(app):
             break
     h, g = host_app.scene, guest_app.scene
     assert h.human_side == FOX and g.human_side == GOOSE and not h.match.moves
+    assert any(m.get("text") == "Bien joué 👏" for m in h.chat.log)      # conversation conservée
     # départ de l'invité : l'hôte doit être prévenu
     g.quit_to_menu()
     for _ in range(600):
