@@ -118,7 +118,12 @@ def test_online_full_game_two_players(app):
     host_app, guest_app = app, FakeApp()
     host_app.scene = LobbyScene(host_app, "host", setup="1-13", host_side=GOOSE)
     host_lobby = host_app.scene
-    assert run_until(host_app, lambda: host_lobby.code is not None, 2000)
+    # la connexion au relais prend un temps réel (réseau), pas un nombre d'images
+    deadline = time.time() + 20
+    while host_lobby.code is None and time.time() < deadline:
+        host_app.frame()
+        time.sleep(0.02)
+    assert host_lobby.code is not None
     guest_app.scene = LobbyScene(guest_app, "guest", code=host_lobby.code)
 
     def both_frames():

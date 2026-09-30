@@ -63,6 +63,7 @@ class Audio:
             "lose": [(0.18, 392, 392, "tri", 0), (0.18, 330, 330, "tri", 0), (0.4, 262, 250, "tri", 0)],
             "join": [(0.08, 660, 660, "sine", 0), (0.16, 990, 990, "sine", 0)],
             "chat": [(0.04, 1180, 1400, "sine", 0), (0.07, 1560, 1760, "sine", 0)],
+            "turn": [(0.1, 784, 784, "tri", 0), (0.1, 988, 988, "tri", 0), (0.28, 1318, 1318, "tri", 0)],
         }
         for name, parts in spec.items():
             self.sounds[name] = pygame.mixer.Sound(buffer=_tone(parts, 0.45))

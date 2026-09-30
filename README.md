@@ -51,6 +51,8 @@ Un bug, une idée ? [Ouvre une *issue*](../../issues/new/choose).
 - **Chat pendant la partie en ligne** : messages et émojis (😂 👍 😮 😡 🔥 👏 😭 😎) qui
   s'envolent au-dessus du plateau. Entrée pour écrire.
 - **5 configurations** : 1 renard contre 13, 15 ou 17 oies ; 2 renards contre 20 ou 27.
+- **On sait toujours quand c'est à soi** : bannière « À toi de jouer ! », son, icône qui clignote
+  dans la barre des tâches si la fenêtre est en arrière-plan, rappel si l'on tarde.
 - Annulation de coup, sauvegarde automatique, plein écran (F11), musique et bruitages.
 
 | Choisir sa partie | Jouer en ligne et discuter | Gagner |
@@ -97,7 +99,7 @@ Tests : `pip install -r requirements-dev.txt && python -m pytest`
 | [`foxgeese/scenes.py`](foxgeese/scenes.py) | Menus, configuration, salon en ligne, règles. |
 | [`foxgeese/ui.py`](foxgeese/ui.py) | Thème, mise à l'échelle (Retina / 4K), widgets. |
 | [`foxgeese/storage.py`](foxgeese/storage.py) | Sauvegarde et réglages dans le dossier utilisateur. |
-| [`tests/`](tests) | 25 tests automatiques. |
+| [`tests/`](tests) | 30 tests automatiques. |
 | [`archive-2023/`](archive-2023) | Version originale de 2023 (Tkinter) et sa documentation. |
 
 **Mode en ligne.** Pour éviter d'avoir à ouvrir des ports sur sa box, les deux jeux passent

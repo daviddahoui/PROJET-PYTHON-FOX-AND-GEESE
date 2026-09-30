@@ -158,6 +158,11 @@ class GameScene(Scene):
         self.net_error = None
         self.last_move = self.match.moves[-1] if self.match.moves else None
         self.rng = random.Random()
+        # Annonce du tour : bannière [titre, sous-titre, couleur, âge], rappel si le joueur tarde
+        self.banner: list | None = None
+        self.turn_seen: tuple | None = None
+        self.turn_wait = 0.0
+        self.reminded = False
         self._build_panel()
 
     # --- Qui joue ? ------------------------------------------------------------------------
@@ -398,6 +403,7 @@ class GameScene(Scene):
 
         if self.session:
             self._net_update()
+        self._watch_turn(dt)
 
         if not self.paused and not s.winner:
             self.seconds += dt
@@ -431,6 +437,60 @@ class GameScene(Scene):
             if not self.end_shown:
                 self._on_game_over()
             self.end_shown += dt
+
+    # --- Annonce du tour -------------------------------------------------------------------
+
+    def announce(self, title: str, sub: str, color, sound: bool = True):
+        self.banner = [title, sub, color, 0.0]
+        if sound:
+            self.app.audio.play("turn")
+
+    def _alert_window(self, on: bool):
+        """Fenêtre en arrière-plan : l'icône clignote et le titre prévient le joueur."""
+        win = getattr(self.app, "window", None)
+        if win is None:
+            return
+        try:
+            if on and not win.focused:
+                win.title = "▶ À toi de jouer ! — Fox and Geese"
+                win.flash(getattr(pygame, "FLASH_UNTIL_FOCUSED", 2))
+            elif not on or win.focused:
+                win.title = "Fox and Geese"
+        except (AttributeError, pygame.error):
+            pass
+
+    def _watch_turn(self, dt):
+        if self.banner:
+            self.banner[3] += dt
+            if self.banner[3] > 2.8:
+                self.banner = None
+        s = self.shown
+        ready = not self.anim and not self.queue and not s.winner and not self.paused and not self.net_error
+        mine = ready and self.is_human_turn(s)
+        if not mine:
+            self._alert_window(False)
+            return
+        color = FOX_C if s.turn == FOX else GOOSE_C
+        key = (len(self.match.moves), s.turn, s.chain)
+        if key != self.turn_seen:
+            self.turn_seen = key
+            self.turn_wait = 0.0
+            self.reminded = False
+            if s.chain is not None:
+                self.announce("Rafle !", "Tu peux encore croquer une oie, ou t'arrêter.", FOX_C)
+            elif self.mode == "local":
+                title = "Au tour des oies" if s.turn == GOOSE else ("Au tour des renards" if s.fox_count > 1 else "Au tour du renard")
+                self.announce(title, "Clique sur une de tes pièces", color)
+            else:
+                self.announce("À toi de jouer !", f"Tu joues : {SIDE_NAME[s.turn]}", color)
+                self._alert_window(True)
+        elif self.mode != "local":
+            # le joueur tarde : petit rappel au bout de 25 secondes
+            self.turn_wait += dt
+            if self.turn_wait > 25 and not self.reminded:
+                self.reminded = True
+                self.announce("Toujours à toi !", "Ton adversaire attend ton coup.", color)
+                self._alert_window(True)
 
     def _on_game_over(self):
         self.end_shown = 0.001
@@ -485,6 +545,7 @@ class GameScene(Scene):
         self._draw_hints(surf)
         self._draw_pieces(surf)
         self._draw_panel(surf)
+        self._draw_banner(surf)
         self.particles.draw(surf)
         chat_on_top = self.chat is not None and not self.net_error
         if self.chat:
@@ -555,6 +616,29 @@ class GameScene(Scene):
             hop = math.sin(math.pi * min(1.0, a.t / a.duration)) * (46 if captured is not None else 10)
             draw_token(surf, a.piece, x, y, scale=1 + hop / 400, lift=hop)
 
+    def _draw_banner(self, surf):
+        """Bannière « À toi de jouer ! » : entre par le haut, reste, puis ressort."""
+        if not self.banner:
+            return
+        title, sub, color, t = self.banner
+        enter = ease_out_back(min(1.0, t / 0.35))
+        leave = max(0.0, (t - 2.4) / 0.4)
+        y = 120 - (1 - enter) * 70 - leave * 110
+        w = 470
+        box(surf, BX - w / 2, y, w, 112, CREAM, radius=24, border=4, shadow=8)
+        stripe(surf, BX - w / 2, y, w, color)
+        text(surf, title, BX, y + 52, 42, "title", color, anchor="center")
+        text(surf, sub, BX, y + 88, 17, "semi", INK_SOFT, anchor="center")
+
+    def _my_turn_glow(self, surf, x, y, w, h):
+        """Contour doré qui pulse autour de la carte du tour quand c'est au joueur de jouer."""
+        s = self.shown
+        if self.mode == "local" or s.winner or not self.is_human_turn(s) or self.anim or self.queue:
+            return
+        k = (math.sin(self.t * 5) + 1) / 2
+        col = (255, int(190 + 40 * k), int(40 + 60 * k))
+        pygame.draw.rect(surf, col, G.r(x - 5, y - 5, w + 10, h + 10), max(2, G.p(3 + 2 * k)), border_radius=G.p(26))
+
     def _draw_panel(self, surf):
         if self.mode == "online":
             return self._draw_panel_online(surf)
@@ -562,6 +646,7 @@ class GameScene(Scene):
         px, pw = 800, 360
         # Carte « à qui le tour »
         turn_col = FOX_C if s.turn == FOX else GOOSE_C
+        self._my_turn_glow(surf, px, 40, pw, 170)
         box(surf, px, 40, pw, 170, CREAM, radius=22)
         stripe(surf, px, 40, pw, turn_col)
         image(surf, "fox.png" if s.turn == FOX else "goose.png", px + 70, 128, 96,
@@ -636,6 +721,7 @@ class GameScene(Scene):
         """Panneau compact : tour, statistiques, puis le chat (dessiné à part)."""
         s = self.shown
         px, pw = 800, 360
+        self._my_turn_glow(surf, px, 40, pw, 100)
         box(surf, px, 40, pw, 100, CREAM, radius=22)
         stripe(surf, px, 40, pw, FOX_C if s.turn == FOX else GOOSE_C)
         image(surf, "fox.png" if s.turn == FOX else "goose.png", px + 50, 94, 64, angle=math.sin(self.t * 3) * 4)
